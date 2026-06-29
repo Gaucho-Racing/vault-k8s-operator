@@ -10,12 +10,18 @@ type VaultSecretSyncSpec struct {
 	ServiceAccountName string                `json:"serviceAccountName,omitempty"`
 	Target             VaultSecretSyncTarget `json:"target"`
 	Secrets            map[string]string     `json:"secrets"`
+	RolloutTargets     []RolloutTarget       `json:"rolloutTargets,omitempty"`
 	RefreshInterval    *metav1.Duration      `json:"refreshInterval,omitempty"`
 }
 
 type VaultSecretSyncTarget struct {
 	Name string            `json:"name,omitempty"`
 	Type corev1.SecretType `json:"type,omitempty"`
+}
+
+type RolloutTarget struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
 }
 
 type VaultSecretSyncStatus struct {

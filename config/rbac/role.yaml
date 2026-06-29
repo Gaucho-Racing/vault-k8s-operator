@@ -4,6 +4,15 @@ metadata:
   name: vault-k8s-operator-manager
 rules:
   - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+      - deployments
+      - statefulsets
+    verbs:
+      - get
+      - patch
+  - apiGroups:
       - vault.gauchoracing.com
     resources:
       - vaultsecretsyncs

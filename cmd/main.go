@@ -63,6 +63,7 @@ func main() {
 
 	if err := (&controller.VaultSecretSyncReconciler{
 		Client:                 mgr.GetClient(),
+		Reader:                 mgr.GetAPIReader(),
 		Scheme:                 mgr.GetScheme(),
 		VaultClient:            vault.NewClient(),
 		DefaultVaultURL:        vaultURL,
