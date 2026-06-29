@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault-k8s-operator-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vault-k8s-operator-manager
+subjects:
+  - kind: ServiceAccount
+    name: vault-k8s-operator
+    namespace: vault-k8s-operator-system
