@@ -1,12 +1,19 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"reflect"
+	"sort"
+	"strings"
 	"time"
 
 	vaultv1alpha1 "github.com/gaucho-racing/vault-k8s-operator/api/v1alpha1"
 	"github.com/gaucho-racing/vault-k8s-operator/internal/vault"
+	appsv1 "k8s.io/api/apps/v1"
 	authv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -20,6 +27,7 @@ import (
 )
 
 const syncedCondition = "Synced"
+const rolloutHashAnnotationPrefix = "vault.gauchoracing.com/secret-hash-"
 
 type VaultSecretSyncReconciler struct {
 	client.Client
@@ -74,6 +82,10 @@ func (r *VaultSecretSyncReconciler) reconcile(ctx context.Context, sync *vaultv1
 
 	secret, err := r.applySecret(ctx, sync, values)
 	if err != nil {
+		return err
+	}
+
+	if err := r.rolloutTargets(ctx, sync, secretDataHash(secret.Data)); err != nil {
 		return err
 	}
 
@@ -152,6 +164,7 @@ func (r *VaultSecretSyncReconciler) applySecret(ctx context.Context, sync *vault
 		return nil, err
 	}
 
+	original := secret.DeepCopy()
 	secret.Type = secretType
 	secret.Data = data
 	if secret.Labels == nil {
@@ -162,7 +175,161 @@ func (r *VaultSecretSyncReconciler) applySecret(ctx context.Context, sync *vault
 	if err := controllerutil.SetControllerReference(sync, secret, r.Scheme); err != nil {
 		return nil, err
 	}
+	if !secretChanged(original, secret) {
+		return secret, nil
+	}
 	return secret, r.Update(ctx, secret)
+}
+
+func (r *VaultSecretSyncReconciler) rolloutTargets(ctx context.Context, sync *vaultv1alpha1.VaultSecretSync, secretHash string) error {
+	if len(sync.Spec.RolloutTargets) == 0 {
+		return nil
+	}
+
+	annotationKey := rolloutHashAnnotationKey(sync)
+	for _, target := range sync.Spec.RolloutTargets {
+		kind, err := normalizedRolloutTargetKind(target.Kind)
+		if err != nil {
+			return err
+		}
+		name := strings.TrimSpace(target.Name)
+		if name == "" {
+			return fmt.Errorf("rollout target name is required")
+		}
+
+		key := client.ObjectKey{Namespace: sync.Namespace, Name: name}
+		switch kind {
+		case "Deployment":
+			workload := &appsv1.Deployment{}
+			if err := r.Get(ctx, key, workload); err != nil {
+				return fmt.Errorf("get rollout target Deployment/%s: %w", name, err)
+			}
+			if err := r.patchPodTemplateHash(ctx, workload, annotationKey, secretHash); err != nil {
+				return fmt.Errorf("patch rollout target Deployment/%s: %w", name, err)
+			}
+		case "StatefulSet":
+			workload := &appsv1.StatefulSet{}
+			if err := r.Get(ctx, key, workload); err != nil {
+				return fmt.Errorf("get rollout target StatefulSet/%s: %w", name, err)
+			}
+			if err := r.patchPodTemplateHash(ctx, workload, annotationKey, secretHash); err != nil {
+				return fmt.Errorf("patch rollout target StatefulSet/%s: %w", name, err)
+			}
+		case "DaemonSet":
+			workload := &appsv1.DaemonSet{}
+			if err := r.Get(ctx, key, workload); err != nil {
+				return fmt.Errorf("get rollout target DaemonSet/%s: %w", name, err)
+			}
+			if err := r.patchPodTemplateHash(ctx, workload, annotationKey, secretHash); err != nil {
+				return fmt.Errorf("patch rollout target DaemonSet/%s: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+type podTemplateHashTarget interface {
+	client.Object
+	DeepCopyObject() runtime.Object
+}
+
+func (r *VaultSecretSyncReconciler) patchPodTemplateHash(ctx context.Context, workload podTemplateHashTarget, annotationKey string, secretHash string) error {
+	annotations := podTemplateAnnotations(workload)
+	if annotations[annotationKey] == secretHash {
+		return nil
+	}
+
+	original := workload.DeepCopyObject().(client.Object)
+	setPodTemplateAnnotation(workload, annotationKey, secretHash)
+	return r.Patch(ctx, workload, client.MergeFrom(original))
+}
+
+func podTemplateAnnotations(workload podTemplateHashTarget) map[string]string {
+	switch typed := workload.(type) {
+	case *appsv1.Deployment:
+		return typed.Spec.Template.Annotations
+	case *appsv1.StatefulSet:
+		return typed.Spec.Template.Annotations
+	case *appsv1.DaemonSet:
+		return typed.Spec.Template.Annotations
+	default:
+		return nil
+	}
+}
+
+func setPodTemplateAnnotation(workload podTemplateHashTarget, key string, value string) {
+	switch typed := workload.(type) {
+	case *appsv1.Deployment:
+		if typed.Spec.Template.Annotations == nil {
+			typed.Spec.Template.Annotations = map[string]string{}
+		}
+		typed.Spec.Template.Annotations[key] = value
+	case *appsv1.StatefulSet:
+		if typed.Spec.Template.Annotations == nil {
+			typed.Spec.Template.Annotations = map[string]string{}
+		}
+		typed.Spec.Template.Annotations[key] = value
+	case *appsv1.DaemonSet:
+		if typed.Spec.Template.Annotations == nil {
+			typed.Spec.Template.Annotations = map[string]string{}
+		}
+		typed.Spec.Template.Annotations[key] = value
+	}
+}
+
+func normalizedRolloutTargetKind(kind string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "deployment", "deployments":
+		return "Deployment", nil
+	case "statefulset", "statefulsets":
+		return "StatefulSet", nil
+	case "daemonset", "daemonsets":
+		return "DaemonSet", nil
+	default:
+		return "", fmt.Errorf("unsupported rollout target kind %q", kind)
+	}
+}
+
+func rolloutHashAnnotationKey(sync *vaultv1alpha1.VaultSecretSync) string {
+	sum := sha256.Sum256([]byte(sync.Namespace + "/" + sync.Name))
+	return rolloutHashAnnotationPrefix + hex.EncodeToString(sum[:])[:12]
+}
+
+func secretDataHash(data map[string][]byte) string {
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	hash := sha256.New()
+	for _, key := range keys {
+		hash.Write([]byte(key))
+		hash.Write([]byte{0})
+		hash.Write(data[key])
+		hash.Write([]byte{0})
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func secretDataEqual(left map[string][]byte, right map[string][]byte) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, leftValue := range left {
+		rightValue, ok := right[key]
+		if !ok || !bytes.Equal(leftValue, rightValue) {
+			return false
+		}
+	}
+	return true
+}
+
+func secretChanged(original *corev1.Secret, updated *corev1.Secret) bool {
+	return original.Type != updated.Type ||
+		!secretDataEqual(original.Data, updated.Data) ||
+		!reflect.DeepEqual(original.Labels, updated.Labels) ||
+		!reflect.DeepEqual(original.OwnerReferences, updated.OwnerReferences)
 }
 
 func (r *VaultSecretSyncReconciler) refreshInterval(sync vaultv1alpha1.VaultSecretSync) time.Duration {

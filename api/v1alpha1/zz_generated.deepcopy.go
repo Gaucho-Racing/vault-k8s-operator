@@ -68,6 +68,11 @@ func (in *VaultSecretSyncSpec) DeepCopyInto(out *VaultSecretSyncSpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.RolloutTargets != nil {
+		in, out := &in.RolloutTargets, &out.RolloutTargets
+		*out = make([]RolloutTarget, len(*in))
+		copy(*out, *in)
+	}
 	if in.RefreshInterval != nil {
 		in, out := &in.RefreshInterval, &out.RefreshInterval
 		*out = new(v1.Duration)
@@ -80,6 +85,19 @@ func (in *VaultSecretSyncSpec) DeepCopy() *VaultSecretSyncSpec {
 		return nil
 	}
 	out := new(VaultSecretSyncSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *RolloutTarget) DeepCopyInto(out *RolloutTarget) {
+	*out = *in
+}
+
+func (in *RolloutTarget) DeepCopy() *RolloutTarget {
+	if in == nil {
+		return nil
+	}
+	out := new(RolloutTarget)
 	in.DeepCopyInto(out)
 	return out
 }
