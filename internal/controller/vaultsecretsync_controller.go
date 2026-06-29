@@ -31,6 +31,7 @@ const rolloutHashAnnotationPrefix = "vault.gauchoracing.com/secret-hash-"
 
 type VaultSecretSyncReconciler struct {
 	client.Client
+	Reader                 client.Reader
 	Scheme                 *runtime.Scheme
 	VaultClient            *vault.Client
 	DefaultVaultURL        string
@@ -186,6 +187,10 @@ func (r *VaultSecretSyncReconciler) rolloutTargets(ctx context.Context, sync *va
 		return nil
 	}
 
+	reader := r.Reader
+	if reader == nil {
+		reader = r.Client
+	}
 	annotationKey := rolloutHashAnnotationKey(sync)
 	for _, target := range sync.Spec.RolloutTargets {
 		kind, err := normalizedRolloutTargetKind(target.Kind)
@@ -201,7 +206,7 @@ func (r *VaultSecretSyncReconciler) rolloutTargets(ctx context.Context, sync *va
 		switch kind {
 		case "Deployment":
 			workload := &appsv1.Deployment{}
-			if err := r.Get(ctx, key, workload); err != nil {
+			if err := reader.Get(ctx, key, workload); err != nil {
 				return fmt.Errorf("get rollout target Deployment/%s: %w", name, err)
 			}
 			if err := r.patchPodTemplateHash(ctx, workload, annotationKey, secretHash); err != nil {
@@ -209,7 +214,7 @@ func (r *VaultSecretSyncReconciler) rolloutTargets(ctx context.Context, sync *va
 			}
 		case "StatefulSet":
 			workload := &appsv1.StatefulSet{}
-			if err := r.Get(ctx, key, workload); err != nil {
+			if err := reader.Get(ctx, key, workload); err != nil {
 				return fmt.Errorf("get rollout target StatefulSet/%s: %w", name, err)
 			}
 			if err := r.patchPodTemplateHash(ctx, workload, annotationKey, secretHash); err != nil {
@@ -217,7 +222,7 @@ func (r *VaultSecretSyncReconciler) rolloutTargets(ctx context.Context, sync *va
 			}
 		case "DaemonSet":
 			workload := &appsv1.DaemonSet{}
-			if err := r.Get(ctx, key, workload); err != nil {
+			if err := reader.Get(ctx, key, workload); err != nil {
 				return fmt.Errorf("get rollout target DaemonSet/%s: %w", name, err)
 			}
 			if err := r.patchPodTemplateHash(ctx, workload, annotationKey, secretHash); err != nil {
