@@ -110,6 +110,9 @@ echo "  Version:     ${VERSION}"
 echo "  Commit:      $(git rev-parse --short HEAD)"
 echo "  Branch:      main"
 echo ""
+echo "  Files to update:"
+echo "    config/manager/manager.yaml"
+echo ""
 echo "  Docker image that will be tagged:"
 echo "    ${IMAGE}:${INPUT}"
 echo ""
@@ -118,6 +121,22 @@ if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
     echo "Aborted."
     exit 0
 fi
+
+sed -i '' "s#image: ${IMAGE}:.*#image: ${IMAGE}:${INPUT}#" "${REPO_ROOT}/config/manager/manager.yaml"
+
+if git diff --quiet -- config/manager/manager.yaml; then
+    if ! grep -Fq "image: ${IMAGE}:${INPUT}" "${REPO_ROOT}/config/manager/manager.yaml"; then
+        echo "Error: failed to update config/manager/manager.yaml image"
+        exit 1
+    fi
+    echo "config/manager/manager.yaml already references ${IMAGE}:${INPUT}"
+else
+    git add config/manager/manager.yaml
+    git commit -m "release: vault-k8s-operator ${VERSION}"
+    git push origin main
+fi
+
+LOCAL=$(git rev-parse HEAD)
 
 gh release create "$VERSION" \
     --target "$LOCAL" \
