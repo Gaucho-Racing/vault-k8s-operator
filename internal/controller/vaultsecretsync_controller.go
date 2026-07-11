@@ -55,6 +55,10 @@ func (r *VaultSecretSyncReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: refreshInterval}, err
 	}
 
+	log.Info("synced vault secret",
+		"secret", sync.Status.SecretName,
+		"keys", len(sync.Spec.Secrets),
+		"nextSyncIn", refreshInterval)
 	return ctrl.Result{RequeueAfter: refreshInterval}, nil
 }
 
