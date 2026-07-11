@@ -18,7 +18,7 @@ spec:
       serviceAccountName: vault-k8s-operator
       containers:
         - name: manager
-          image: ghcr.io/gaucho-racing/vault-k8s-operator:1.1.0
+          image: ghcr.io/gaucho-racing/vault-k8s-operator:1.1.1
           imagePullPolicy: IfNotPresent
           args:
             - --leader-elect
