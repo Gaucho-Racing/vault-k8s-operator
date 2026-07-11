@@ -1,5 +1,6 @@
 # Vault K8s Operator
 
+[![build](https://github.com/Gaucho-Racing/vault-k8s-operator/actions/workflows/operator.yml/badge.svg)](https://github.com/Gaucho-Racing/vault-k8s-operator/actions/workflows/operator.yml)
 [![Release](https://img.shields.io/github/v/release/Gaucho-Racing/vault-k8s-operator?style=flat-square)](https://github.com/Gaucho-Racing/vault-k8s-operator/releases)
 
 Kubernetes operator that syncs Gaucho Racing [Vault](https://github.com/Gaucho-Racing/Vault) app-secrets into cluster `Secret` resources, and rolls consuming Deployments when values change.
